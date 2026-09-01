@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     krb5-user \
     krb5-config \
     dnsutils \
+    ca-certificates \
     curl \
     gnupg \
     supervisor \
