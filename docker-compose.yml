@@ -5,8 +5,11 @@
 
 services:
   samba-dc:
-    build: .
-    image: samba-ad-fs:latest
+    image: ghcr.io/fernandobayit/samba-ad-fs:latest
+    pull_policy: always
+    # Para desenvolvimento local, troque a linha acima por:
+    # build: .
+    # image: samba-ad-fs:latest
     container_name: samba-ad-dc1
     hostname: dc1
     domainname: swat.local

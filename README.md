@@ -18,7 +18,7 @@ export NETBIRD_SETUP_KEY='sua-setup-key'
 export NETBIRD_MANAGEMENT_URL='https://seu-management:33073'
 ```
 
-3. Suba o container:
+3. Suba o container (a imagem é baixada do GitHub Container Registry — `ghcr.io/fernandobayit/samba-ad-fs:latest`; para build local, veja o comentário no docker-compose.yml):
 
 ```bash
 docker compose up -d
