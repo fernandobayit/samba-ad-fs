@@ -1,0 +1,43 @@
+# Samba 4 AD DC — deploy standalone
+# Acesso exclusivo via malha NetBird (nenhuma porta publicada no host).
+# Defina os valores no shell antes de subir (export SAMBA_ADMIN_PASSWORD=...)
+# ou edite os placeholders abaixo. Nunca commite valores reais.
+
+services:
+  samba-dc:
+    build: .
+    image: samba-ad-fs:latest
+    container_name: samba-ad-dc1
+    hostname: dc1
+    domainname: swat.local
+    privileged: true
+    devices:
+      - /dev/net/tun
+    environment:
+      SAMBA_REALM: ${SAMBA_REALM:-SWAT.LOCAL}
+      SAMBA_DOMAIN: ${SAMBA_DOMAIN:-SWAT}
+      SAMBA_ADMIN_PASSWORD: ${SAMBA_ADMIN_PASSWORD:-ChangeThisPassword}
+      SAMBA_DNS_FORWARDER: ${SAMBA_DNS_FORWARDER:-1.1.1.1}
+      NETBIRD_MANAGEMENT_URL: ${NETBIRD_MANAGEMENT_URL:-https://netbird.example.com:33073}
+      NETBIRD_SETUP_KEY: ${NETBIRD_SETUP_KEY:-}
+      # NETBIRD_PEER_IP: ${NETBIRD_PEER_IP:-}   # informativa apenas
+    volumes:
+      - samba-dados:/var/lib/samba
+      - samba-config:/etc/samba
+      - samba-logs:/var/log/samba
+      - netbird-config:/etc/netbird
+      - netbird-estado:/var/lib/netbird
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "samba-tool", "processes", "--configfile=/etc/samba/smb.conf" ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+volumes:
+  samba-dados:
+  samba-config:
+  samba-logs:
+  netbird-config:
+  netbird-estado:
