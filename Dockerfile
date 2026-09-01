@@ -12,9 +12,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     krb5-user \
     krb5-config \
     dnsutils \
+    curl \
+    gnupg \
     supervisor \
     procps \
     && rm -rf /var/lib/apt/lists/*
+
+# NetBird (mesh VPN) — optional, enabled via NETBIRD_SETUP_KEY
+RUN curl -sSL https://pkgs.netbird.io/debian/public.key | \
+    gpg --dearmor -o /usr/share/keyrings/netbird.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/netbird.gpg] https://pkgs.netbird.io/debian stable main" > \
+    /etc/apt/sources.list.d/netbird.list && \
+    apt-get update && apt-get install -y --no-install-recommends netbird && \
+    rm -rf /var/lib/apt/lists/*
 
 # Environment defaults
 ENV SAMBA_REALM=SWAT.LOCAL
