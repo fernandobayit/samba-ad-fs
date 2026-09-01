@@ -1,7 +1,7 @@
 # Samba 4 AD DC — deploy standalone
 # Acesso exclusivo via malha NetBird (nenhuma porta publicada no host).
 # Defina os valores no shell antes de subir (export SAMBA_ADMIN_PASSWORD=...)
-# ou edite os placeholders abaixo. Nunca commite valores reais.
+# — os placeholders abaixo sao apenas fallbacks. Nunca commite valores reais.
 
 services:
   samba-dc:

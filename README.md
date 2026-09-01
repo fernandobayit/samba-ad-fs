@@ -40,7 +40,7 @@ Atenção: o primeiro boot provisiona o domínio do zero, o que leva alguns minu
 | SAMBA_DOMAIN | não | SWAT | Nome NetBIOS/curto do domínio. |
 | SAMBA_ADMIN_PASSWORD | sim | — | Senha do Administrator. Sem ela o container recusa subir; o placeholder ChangeThisPassword também é recusado. |
 | SAMBA_DNS_FORWARDER | não | 1.1.1.1 | Servidor DNS para onde o DC encaminha resoluções externas. |
-| NETBIRD_MANAGEMENT_URL | sim para mesh | — | URL do Management Server NetBird (ex.: https://netbird.example.com:33073). |
+| NETBIRD_MANAGEMENT_URL | sim para mesh | https://netbird.example.com:33073 | URL do Management Server NetBird self-hosted. |
 | NETBIRD_SETUP_KEY | não | vazio | Setup Key do NetBird. Vazio desativa o cliente NetBird. |
 | NETBIRD_PEER_IP | não | — | Apenas informativa; mostra no log o IP mesh esperado para o peer. |
 
