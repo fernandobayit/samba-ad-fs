@@ -78,5 +78,45 @@ fi
 # Create log directory
 mkdir -p /var/log/samba
 
+# ── NetBird mesh (optional) ─────────────────────────────
+if [ -n "$NETBIRD_SETUP_KEY" ]; then
+    echo "==> NetBird: starting..."
+
+    if [ ! -e /dev/net/tun ]; then
+        echo "ERROR: /dev/net/tun not available. Add 'devices: - /dev/net/tun' to the container." >&2
+        exit 1
+    fi
+    if [ -z "$NETBIRD_MANAGEMENT_URL" ]; then
+        echo "ERROR: NETBIRD_MANAGEMENT_URL is required when NETBIRD_SETUP_KEY is set." >&2
+        exit 1
+    fi
+
+    if [ -n "$NETBIRD_PEER_IP" ]; then
+        echo "==> NetBird: expected mesh IP $NETBIRD_PEER_IP (informational)"
+    fi
+
+    netbird up --management-url "$NETBIRD_MANAGEMENT_URL" --setup-key "$NETBIRD_SETUP_KEY" 2>&1 || {
+        echo "ERROR: netbird up failed. Check NETBIRD_MANAGEMENT_URL and NETBIRD_SETUP_KEY." >&2
+        exit 1
+    }
+
+    connected=0
+    for _ in $(seq 1 30); do
+        if netbird status 2>/dev/null | grep -qi "connected"; then
+            connected=1
+            break
+        fi
+        sleep 3
+    done
+
+    if [ "$connected" -ne 1 ]; then
+        echo "ERROR: NetBird did not reach Connected state within 90s." >&2
+        netbird status 2>&1 | head -20 >&2
+        exit 1
+    fi
+
+    echo "==> NetBird: connected."
+fi
+
 echo "==> Starting Samba AD DC..."
 exec samba --foreground --no-process-group
