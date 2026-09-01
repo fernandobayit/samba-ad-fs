@@ -27,12 +27,10 @@ acessivel remotamente via mesh sem abrir portas na internet.
 ┌─────────────────────────────────────────┐
 │ Container samba-dc (privileged)         │
 │  /dev/net/tun                           │
-│  ┌─────────────┐ ┌────────────────────┐ │
-│  │ supervisord │ │ netbird (wt0)      │ │
-│  │  (PID 1)    │ │  service run       │ │
-│  │  ├─ samba   │ └────────────────────┘ │
-│  │  └─ netbird?│                        │
-│  └─────────────┘                        │
+│  ┌────────────────────┐ ┌─────────────┐ │
+│  │ netbird daemon     │ │ samba       │ │
+│  │ (wt0, background)  │ │ (foreground)│ │
+│  └────────────────────┘ └─────────────┘ │
 │  samba DNS interno: 0.0.0.0:53          │
 └─────────────────────────────────────────┘
 ```
@@ -46,11 +44,10 @@ acessivel remotamente via mesh sem abrir portas na internet.
 2. **entrypoint.sh**:
    - Fluxo atual de provisionamento AD (inalterado)
    - Se `NETBIRD_SETUP_KEY` definida:
-     - Gera/se referencia config do NetBird com `NETBIRD_MANAGEMENT_URL`
-     - `netbird up --setup-key ...`
-     - Aguarda status "connected" (timeout ~90s); falha → `exit 1` com mensagem
-   - Inicia supervisord como PID 1: `samba` + `netbird service run` (so quando
-     habilitado)
+     - Valida `/dev/net/tun` e `NETBIRD_MANAGEMENT_URL` (erro claro se faltar)
+     - `netbird up --management-url ... --setup-key ...` (daemon fica em background)
+     - Aguarda status "Connected" (timeout ~90s); falha → `exit 1` com mensagem
+   - `exec samba` como hoje (sem supervisord; supervisao pode ser evolucao futura)
 
 ### swat4 (`docker-compose.yml`, servico samba-dc)
 
