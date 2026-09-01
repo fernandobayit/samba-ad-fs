@@ -213,3 +213,23 @@ git push origin main
 - `NETBIRD_PEER_IP` e apenas informativa (sem acao automatica)
 - Sem `NETBIRD_SETUP_KEY` o comportamento permanece identico ao atual
 - Supervisao do daemon NetBird (supervisor) pode ser evolucao futura
+---
+
+## Notas da execucao (post-implementacao)
+
+Desvios/descobertas durante o build e smoke tests:
+
+1. **ca-certificates** precisou ser adicionado ao primeiro RUN (curl HTTPS falhava)
+2. **Poll troca de grep para `netbird status --check startup`** (grep `connected` casava
+   com `Disconnected`; `--check` exige management+signal conectados; exige netbird >= 0.67)
+3. **`netbird service start` antes do `netbird up`** — v0.70 exige daemon rodando;
+   `service start` funciona no container sem systemd
+4. **Smoke test exige `--privileged`** (xattr `security.NTACL` do provisionamento
+   requer capacidades) e volumes — igual ao compose real
+5. No Docker Desktop o `/dev/net/tun` existe mesmo sem `devices` (VM LinuxKit);
+   o guard `-c /dev/net/tun` continua valido para outros runtimes
+
+Smoke results:
+- Sem `NETBIRD_SETUP_KEY`: container sobe normalmente ✅
+- Key invalida/management inacessivel: daemon inicia, up falha, erro claro, exit 1 ✅
+- Caminho "Connected": requer management + setup key reais (verificacao do usuario)
