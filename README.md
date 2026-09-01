@@ -54,10 +54,8 @@ Nenhuma porta é publicada no host: o acesso ao DC acontece exclusivamente pela 
 
 ## Persistência
 
-Todos os dados ficam em volumes nomeados: `samba-dados`, `samba-config`, `samba-logs`, `netbird-config` e `netbird-estado`. Com isso, a identidade do peer NetBird (e todo o estado do domínio) é preservada entre recriações do container.
+Todos os dados ficam em volumes nomeados: `samba-dados`, `samba-config`, `samba-logs`, `samba-shares`, `netbird-config` e `netbird-estado`. Com isso, a identidade do peer NetBird (e todo o estado do domínio) é preservada entre recriações do container.
 
 ## Integração com swat4
-
-Este repo pode ser clonado em `./samba-dc` dentro do projeto swat4 (gerenciador web), cujo docker-compose.yml faz referência a esse caminho como build context, permitindo subir o DC junto com a stack do gerenciador.
 
 Quando o swat4 roda no modo containerizado, ele entra na rede docker compartilhada `swat-net` e monta os volumes nomeados deste stack por nome (`<nome-do-projeto>_samba-config`, `<nome-do-projeto>_samba-logs`, `<nome-do-projeto>_samba-shares`). Por isso o diretório do projeto deve se chamar `samba-ad-fs` (ou informe `SAMBA_DC_COMPOSE_PROJECT` ao swat4); a rede `swat-net` é criada por quem subir primeiro.
