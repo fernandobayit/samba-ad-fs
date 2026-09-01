@@ -95,6 +95,12 @@ if [ -n "$NETBIRD_SETUP_KEY" ]; then
         echo "==> NetBird: expected mesh IP ${NETBIRD_PEER_IP} (informational)"
     fi
 
+    netbird service start || {
+        echo "ERROR: failed to start NetBird daemon." >&2
+        exit 1
+    }
+    sleep 2
+
     netbird up --management-url "$NETBIRD_MANAGEMENT_URL" --setup-key "$NETBIRD_SETUP_KEY" 2>&1 || {
         echo "ERROR: netbird up failed. Check NETBIRD_MANAGEMENT_URL and NETBIRD_SETUP_KEY." >&2
         exit 1
