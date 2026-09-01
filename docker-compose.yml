@@ -30,7 +30,11 @@ services:
       - samba-logs:/var/log/samba
       - netbird-config:/etc/netbird
       - netbird-estado:/var/lib/netbird
+      - samba-shares:/mnt/data
     restart: unless-stopped
+    networks:
+      - default
+      - swat-net
     healthcheck:
       test: [ "CMD", "samba-tool", "processes", "--configfile=/etc/samba/smb.conf" ]
       interval: 15s
@@ -44,3 +48,9 @@ volumes:
   samba-logs:
   netbird-config:
   netbird-estado:
+  samba-shares:
+
+networks:
+  swat-net:
+    name: swat-net
+    driver: bridge
