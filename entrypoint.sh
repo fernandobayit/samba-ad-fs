@@ -82,7 +82,7 @@ mkdir -p /var/log/samba
 if [ -n "$NETBIRD_SETUP_KEY" ]; then
     echo "==> NetBird: starting..."
 
-    if [ ! -e /dev/net/tun ]; then
+    if [ ! -c /dev/net/tun ]; then
         echo "ERROR: /dev/net/tun not available. Add 'devices: - /dev/net/tun' to the container." >&2
         exit 1
     fi
@@ -92,7 +92,7 @@ if [ -n "$NETBIRD_SETUP_KEY" ]; then
     fi
 
     if [ -n "$NETBIRD_PEER_IP" ]; then
-        echo "==> NetBird: expected mesh IP $NETBIRD_PEER_IP (informational)"
+        echo "==> NetBird: expected mesh IP ${NETBIRD_PEER_IP} (informational)"
     fi
 
     netbird up --management-url "$NETBIRD_MANAGEMENT_URL" --setup-key "$NETBIRD_SETUP_KEY" 2>&1 || {
@@ -101,8 +101,8 @@ if [ -n "$NETBIRD_SETUP_KEY" ]; then
     }
 
     connected=0
-    for _ in $(seq 1 30); do
-        if netbird status 2>/dev/null | grep -qi "connected"; then
+    for _ in {1..30}; do
+        if netbird status --check startup >/dev/null 2>&1; then
             connected=1
             break
         fi
@@ -111,7 +111,7 @@ if [ -n "$NETBIRD_SETUP_KEY" ]; then
 
     if [ "$connected" -ne 1 ]; then
         echo "ERROR: NetBird did not reach Connected state within 90s." >&2
-        netbird status 2>&1 | head -20 >&2
+        netbird status 2>&1 | head -n 20 >&2
         exit 1
     fi
 
