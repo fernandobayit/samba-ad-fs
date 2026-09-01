@@ -95,11 +95,18 @@ if [ -n "$NETBIRD_SETUP_KEY" ]; then
         echo "==> NetBird: expected mesh IP ${NETBIRD_PEER_IP} (informational)"
     fi
 
-    netbird service start || {
+    rm -f /var/run/netbird.sock
+
+    netbird service start --log-file console || {
         echo "ERROR: failed to start NetBird daemon." >&2
         exit 1
     }
-    sleep 2
+    for _ in {1..10}; do
+        if netbird status --check live >/dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+    done
 
     netbird up --management-url "$NETBIRD_MANAGEMENT_URL" --setup-key "$NETBIRD_SETUP_KEY" 2>&1 || {
         echo "ERROR: netbird up failed. Check NETBIRD_MANAGEMENT_URL and NETBIRD_SETUP_KEY." >&2
