@@ -2,6 +2,10 @@
 # Acesso exclusivo via malha NetBird (nenhuma porta publicada no host).
 # Defina os valores no shell antes de subir (export SAMBA_ADMIN_PASSWORD=...)
 # — os placeholders abaixo sao apenas fallbacks. Nunca commite valores reais.
+#
+# Gerenciador web (swat4) embutido — sobe junto com o DC:
+#   docker compose --profile swat4 up -d
+# (portas 8000/3000 publicadas somente em 127.0.0.1)
 
 services:
   samba-dc:
@@ -42,6 +46,49 @@ services:
       retries: 10
       start_period: 120s
 
+  swat4-backend:
+    image: ghcr.io/fernandobayit/swat4-backend:latest
+    pull_policy: always
+    container_name: swat4-backend
+    profiles: ["swat4"]
+    environment:
+      SAMBA_DC_HOST: samba-ad-dc1
+      SAMBA_REALM: ${SAMBA_REALM:-SWAT.LOCAL}
+      SAMBA_DOMAIN: ${SAMBA_DOMAIN:-SWAT}
+      SAMBA_BASE_DN: ${SAMBA_BASE_DN:-DC=swat,DC=local}
+      LDAP_URL: ${LDAP_URL:-ldap://samba-ad-dc1:389}
+      SAMBA_ADMIN_USER: ${SAMBA_ADMIN_USER:-administrator}
+      SAMBA_ADMIN_PASSWORD: ${SAMBA_ADMIN_PASSWORD:-ChangeThisPassword}
+      JWT_SECRET: ${JWT_SECRET:-change-this-jwt-secret}
+      ALLOWED_LOGIN_GROUPS: ${ALLOWED_LOGIN_GROUPS:-Domain Admins,Account Operators}
+      SAMBA_LOG_PATH: /var/log/samba
+      TZ: ${TZ:-America/Sao_Paulo}
+    volumes:
+      - samba-config:/etc/samba
+      - samba-logs:/var/log/samba:ro
+      - samba-shares:/mnt/data
+      - swat4-data:/app/data
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      samba-dc:
+        condition: service_healthy
+    restart: unless-stopped
+
+  swat4-frontend:
+    image: ghcr.io/fernandobayit/swat4-frontend:latest
+    pull_policy: always
+    container_name: swat4-frontend
+    profiles: ["swat4"]
+    environment:
+      - NEXT_PUBLIC_API_URL=${SWAT4_API_URL:-http://localhost:8000}
+      - API_URL=http://swat4-backend:8000
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - swat4-backend
+    restart: unless-stopped
+
 volumes:
   samba-dados:
   samba-config:
@@ -49,6 +96,7 @@ volumes:
   netbird-config:
   netbird-estado:
   samba-shares:
+  swat4-data:
 
 networks:
   swat-net:

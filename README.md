@@ -59,3 +59,20 @@ Todos os dados ficam em volumes nomeados: `samba-dados`, `samba-config`, `samba-
 ## Integração com swat4
 
 Quando o swat4 roda no modo containerizado, ele entra na rede docker compartilhada `swat-net` e monta os volumes nomeados deste stack por nome (`<nome-do-projeto>_samba-config`, `<nome-do-projeto>_samba-logs`, `<nome-do-projeto>_samba-shares`). Por isso o diretório do projeto deve se chamar `samba-ad-fs` (ou informe `SAMBA_DC_COMPOSE_PROJECT` ao swat4); a rede `swat-net` é criada por quem subir primeiro.
+
+### Subir com o gerenciador web (swat4) embutido
+
+Este docker-compose.yml também traz o gerenciador web (backend + frontend do
+swat4) como serviços opcionais:
+
+```bash
+export SAMBA_ADMIN_PASSWORD='sua-senha-forte'
+export JWT_SECRET='um-segredo-longo-e-aleatorio'
+docker compose --profile swat4 up -d
+```
+
+Acesse a interface em http://localhost:3000 (entre com uma conta de um grupo
+listado em `ALLOWED_LOGIN_GROUPS`, ex.: Domain Admins). As portas 8000 e 3000
+ficam publicadas apenas em 127.0.0.1 do host; para acesso remoto, use túnel
+SSH, a malha NetBird ou edite o bind. Sem `--profile swat4`, somente o DC sobe
+(comportamento padrão).
