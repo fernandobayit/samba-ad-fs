@@ -74,6 +74,11 @@ services:
       samba-dc:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      default:
+        aliases:
+          - swat4-backend
+          - backend
 
   swat4-frontend:
     image: ghcr.io/fernandobayit/swat4-frontend:latest
