@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     samba-dsdb-modules \
     samba-vfs-modules \
     winbind \
+    libnss-winbind \
+    libpam-winbind \
     ldb-tools \
     krb5-user \
     krb5-config \
