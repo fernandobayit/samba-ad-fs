@@ -38,37 +38,6 @@ if [ ! -f "$PROVISIONED_FLAG" ]; then
     echo "==> Configuring LDAP to allow simple binds..."
     sed -i '/\[global\]/a\\tldap server require strong auth = no' /etc/samba/smb.conf
 
-    # Create sample OUs
-    echo "==> Creating sample OUs..."
-    samba-tool ou create "OU=Company,DC=swat,DC=local" || true
-    samba-tool ou create "OU=Users,OU=Company,DC=swat,DC=local" || true
-    samba-tool ou create "OU=Groups,OU=Company,DC=swat,DC=local" || true
-    samba-tool ou create "OU=IT,OU=Company,DC=swat,DC=local" || true
-    samba-tool ou create "OU=HR,OU=Company,DC=swat,DC=local" || true
-
-    # Create sample users
-    echo "==> Creating sample users..."
-    samba-tool user create john.doe "${SAMBA_ADMIN_PASSWORD}" \
-        --given-name="John" --surname="Doe" --mail-address="john.doe@swat.local" \
-        --userou="OU=Users,OU=Company" || true
-    samba-tool user create jane.smith "${SAMBA_ADMIN_PASSWORD}" \
-        --given-name="Jane" --surname="Smith" --mail-address="jane.smith@swat.local" \
-        --userou="OU=Users,OU=Company" || true
-    samba-tool user create bob.wilson "${SAMBA_ADMIN_PASSWORD}" \
-        --given-name="Bob" --surname="Wilson" --mail-address="bob.wilson@swat.local" \
-        --userou="OU=IT,OU=Company" || true
-
-    # Create sample groups
-    echo "==> Creating sample groups..."
-    samba-tool group create "IT Staff" --groupou="OU=Groups,OU=Company" --description="IT Department Staff" || true
-    samba-tool group create "HR Team" --groupou="OU=Groups,OU=Company" --description="HR Department" || true
-    samba-tool group create "Managers" --groupou="OU=Groups,OU=Company" --description="Company Managers" || true
-
-    # Add users to groups
-    samba-tool group addmembers "IT Staff" bob.wilson || true
-    samba-tool group addmembers "HR Team" jane.smith || true
-    samba-tool group addmembers "Managers" john.doe || true
-
     touch "$PROVISIONED_FLAG"
     echo "==> Samba AD DC provisioned successfully!"
 else
