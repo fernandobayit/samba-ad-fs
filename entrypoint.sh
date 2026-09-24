@@ -42,6 +42,12 @@ if [ ! -f "$PROVISIONED_FLAG" ]; then
     # Sufixo DN derivado do realm (ex.: SWAT.LOCAL → DC=swat,DC=local)
     DC_SUFFIX=$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z' | sed 's/\./,DC=/g; s/^/DC=/')
 
+    # ── Interfaces: IP principal = NetBird (wt0) ─────────────
+    # wt0 primeiro → seu IP fica como A record primário do DC no DNS;
+    # lo e eth0 mantêm LDAP/DNS/SMB acessíveis dentro do host docker.
+    echo "==> Configuring interfaces (NetBird wt0 as primary)..."
+    sed -i '/\[global\]/a\\tinterfaces = lo wt0 eth0' /etc/samba/smb.conf
+
     echo "==> Creating base OUs (raiz + TIC)..."
     samba-tool ou create "OU=${SAMBA_DOMAIN},${DC_SUFFIX}" || true
     samba-tool ou create "OU=Tecnologia da Informação e Comunicação,OU=${SAMBA_DOMAIN},${DC_SUFFIX}" || true
