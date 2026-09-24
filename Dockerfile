@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM debian:trixie
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=America/Sao_Paulo
@@ -26,7 +26,7 @@ RUN curl -sSL https://pkgs.netbird.io/debian/public.key | \
     gpg --dearmor -o /usr/share/keyrings/netbird.gpg && \
     echo "deb [signed-by=/usr/share/keyrings/netbird.gpg] https://pkgs.netbird.io/debian stable main" > \
     /etc/apt/sources.list.d/netbird.list && \
-    apt-get update && apt-get install -y --no-install-recommends netbird=0.77.1 && \
+    apt-get update && apt-get install -y --no-install-recommends netbird && \
     rm -rf /var/lib/apt/lists/*
 
 # Environment defaults
