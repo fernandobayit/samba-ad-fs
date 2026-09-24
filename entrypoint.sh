@@ -5,10 +5,85 @@ SAMBA_REALM=${SAMBA_REALM:-SWAT.LOCAL}
 SAMBA_DOMAIN=${SAMBA_DOMAIN:-SWAT}
 SAMBA_ADMIN_PASSWORD=${SAMBA_ADMIN_PASSWORD:-ChangeThisPassword}
 SAMBA_DNS_FORWARDER=${SAMBA_DNS_FORWARDER:-1.1.1.1}
+NETBIRD_DNS_PORT=${NETBIRD_DNS_PORT:-5053}
+HOSTNAME_DC=${HOSTNAME_DC:-dc1}
 
 if [ -z "$SAMBA_ADMIN_PASSWORD" ] || [ "$SAMBA_ADMIN_PASSWORD" = "ChangeThisPassword" ]; then
     echo "ERROR: SAMBA_ADMIN_PASSWORD must be set (do not use the placeholder default)."
     exit 1
+fi
+
+# ── NetBird mesh (optional) ─────────────────────────────
+# Sobe ANTES do provisionamento: a wt0 precisa existir para o
+# /etc/hosts (FQDN) e para o registro DNS do DC ficarem com o IP da malha.
+if [ -n "$NETBIRD_SETUP_KEY" ]; then
+    echo "==> NetBird: starting..."
+
+    if [ ! -c /dev/net/tun ]; then
+        echo "ERROR: /dev/net/tun not available. Add 'devices: - /dev/net/tun' to the container." >&2
+        exit 1
+    fi
+    if [ -z "$NETBIRD_MANAGEMENT_URL" ]; then
+        echo "ERROR: NETBIRD_MANAGEMENT_URL is required when NETBIRD_SETUP_KEY is set." >&2
+        exit 1
+    fi
+
+    if [ -n "$NETBIRD_PEER_IP" ]; then
+        echo "==> NetBird: expected mesh IP ${NETBIRD_PEER_IP} (informational)"
+    fi
+
+    rm -f /var/run/netbird.sock
+
+    # Porta do forwarder DNS do netbird: 5053 (53 fica exclusiva do Samba)
+    export NB_DNS_FORWARDER_PORT="$NETBIRD_DNS_PORT"
+
+    netbird service start --log-file console || {
+        echo "ERROR: failed to start NetBird daemon." >&2
+        exit 1
+    }
+    for _ in {1..10}; do
+        if netbird status --check live >/dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+    done
+
+    netbird up --management-url "$NETBIRD_MANAGEMENT_URL" --setup-key "$NETBIRD_SETUP_KEY" 2>&1 || {
+        echo "ERROR: netbird up failed. Check NETBIRD_MANAGEMENT_URL and NETBIRD_SETUP_KEY." >&2
+        exit 1
+    }
+
+    connected=0
+    for _ in {1..30}; do
+        if netbird status --check startup >/dev/null 2>&1; then
+            connected=1
+            break
+        fi
+        sleep 3
+    done
+
+    if [ "$connected" -ne 1 ]; then
+        echo "ERROR: NetBird did not reach Connected state within 90s." >&2
+        netbird status 2>&1 | head -n 20 >&2
+        exit 1
+    fi
+
+    echo "==> NetBird: connected."
+fi
+
+# ── Identidade do DC: hostname FQDN + /etc/hosts (item 10 do ref) ──
+# O hostname do container é fixado pelo docker compose (hostname: dc1).
+# /etc/hosts: FQDN aponta para o IP principal (wt0 se netbird ativo, senão eth0).
+if ! grep -q "${HOSTNAME}.${SAMBA_REALM,,}" /etc/hosts 2>/dev/null; then
+    L_REALM_LOWER=$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')
+    _PRIMARY_IP=$(ip -4 -o addr show wt0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+    [ -z "$_PRIMARY_IP" ] && _PRIMARY_IP=$(hostname -I | awk '{print $1}')
+    if [ -n "$_PRIMARY_IP" ]; then
+        echo "==> /etc/hosts: ${_PRIMARY_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}"
+        echo "${_PRIMARY_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}" >> /etc/hosts
+    else
+        echo "WARN: sem IP primário para /etc/hosts (wt0 ausente e hostname -I vazio)." >&2
+    fi
 fi
 
 PROVISIONED_FLAG="/var/lib/samba/.provisioned"
@@ -129,6 +204,17 @@ EOF
     echo "==> Creating share directories..."
     mkdir -p /mnt/data/{Corporativo,Pessoal,Profile,TIC,.snapshots}
 
+    # ── resolv.conf: o DC é o resolvedor principal (item 10 do ref) ──
+    echo "==> Configuring /etc/resolv.conf (DC as primary resolver)..."
+    L_REALM_LOWER=$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')
+    cat > /etc/resolv.conf <<EOF
+search ${L_REALM_LOWER}
+nameserver 127.0.0.1
+EOF
+    # No container o Docker pode regravar o resolv.conf a cada restart:
+    # tornar imutável durante a vida do container (como o chattr +i do ref).
+    chattr +i /etc/resolv.conf 2>/dev/null || echo "WARN: chattr +i indisponível (resolv.conf poderá ser regravado pelo Docker)." >&2
+
     # NSS via winbind: permite resolver contas/grupos do AD (chown, etc.)
     if ! grep -q '^passwd:.*winbind' /etc/nsswitch.conf; then
         sed -i -E 's/^(passwd|group):([^#]*)$/\1\2 winbind/' /etc/nsswitch.conf
@@ -186,59 +272,6 @@ fi
 
 # Create log directory
 mkdir -p /var/log/samba
-
-# ── NetBird mesh (optional) ─────────────────────────────
-if [ -n "$NETBIRD_SETUP_KEY" ]; then
-    echo "==> NetBird: starting..."
-
-    if [ ! -c /dev/net/tun ]; then
-        echo "ERROR: /dev/net/tun not available. Add 'devices: - /dev/net/tun' to the container." >&2
-        exit 1
-    fi
-    if [ -z "$NETBIRD_MANAGEMENT_URL" ]; then
-        echo "ERROR: NETBIRD_MANAGEMENT_URL is required when NETBIRD_SETUP_KEY is set." >&2
-        exit 1
-    fi
-
-    if [ -n "$NETBIRD_PEER_IP" ]; then
-        echo "==> NetBird: expected mesh IP ${NETBIRD_PEER_IP} (informational)"
-    fi
-
-    rm -f /var/run/netbird.sock
-
-    netbird service start --log-file console || {
-        echo "ERROR: failed to start NetBird daemon." >&2
-        exit 1
-    }
-    for _ in {1..10}; do
-        if netbird status --check live >/dev/null 2>&1; then
-            break
-        fi
-        sleep 1
-    done
-
-    netbird up --management-url "$NETBIRD_MANAGEMENT_URL" --setup-key "$NETBIRD_SETUP_KEY" 2>&1 || {
-        echo "ERROR: netbird up failed. Check NETBIRD_MANAGEMENT_URL and NETBIRD_SETUP_KEY." >&2
-        exit 1
-    }
-
-    connected=0
-    for _ in {1..30}; do
-        if netbird status --check startup >/dev/null 2>&1; then
-            connected=1
-            break
-        fi
-        sleep 3
-    done
-
-    if [ "$connected" -ne 1 ]; then
-        echo "ERROR: NetBird did not reach Connected state within 90s." >&2
-        netbird status 2>&1 | head -n 20 >&2
-        exit 1
-    fi
-
-    echo "==> NetBird: connected."
-fi
 
 echo "==> Starting Samba AD DC..."
 exec samba --foreground --no-process-group
