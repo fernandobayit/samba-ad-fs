@@ -5,6 +5,8 @@ ENV TZ=America/Sao_Paulo
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     samba \
+    samba-ad-dc \
+    samba-ad-provision \
     samba-dsdb-modules \
     samba-vfs-modules \
     winbind \
