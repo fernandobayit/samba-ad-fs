@@ -19,15 +19,43 @@ if [ ! -f "$PROVISIONED_FLAG" ]; then
     # Remove default config
     rm -f /etc/samba/smb.conf
 
-    # Provision the domain
+    # Provision the domain (functional level 2016, igual ao deploy de referência)
     samba-tool domain provision \
         --use-rfc2307 \
         --realm="${SAMBA_REALM}" \
         --domain="${SAMBA_DOMAIN}" \
         --server-role=dc \
         --dns-backend=SAMBA_INTERNAL \
+        --function-level=2016 \
         --adminpass="${SAMBA_ADMIN_PASSWORD}" \
         --option="dns forwarder = ${SAMBA_DNS_FORWARDER}" \
+        --option="ad dc functional level = 2016" \
+        --option="template homedir = /home/%D/%U" \
+        --option="template shell = /bin/bash" \
+        --option="winbind enum users = yes" \
+        --option="winbind enum groups = yes" \
+        --option="winbind use default domain = yes" \
+        --option="winbind separator = @" \
+        --option="vfs objects = dfs_samba4 acl_xattr full_audit shadow_copy2 recycle" \
+        --option="full_audit:success = mkdirat linkat renameat unlinkat" \
+        --option="full_audit:prefix = %U|%M|%S" \
+        --option="full_audit:failure = none" \
+        --option="full_audit:facility = local5" \
+        --option="full_audit:priority = alert" \
+        --option="full_audit:syslog = true" \
+        --option="shadow:snapdir = /mnt/data/.snapshots" \
+        --option="shadow:basedir = /mnt/data/" \
+        --option="shadow:sort = desc" \
+        --option="shadow:localtime = yes" \
+        --option="shadow:format = %Y-%m-%d-%H%M" \
+        --option="map to guest = bad user" \
+        --option="map acl inherit = yes" \
+        --option="acl_xattr:ignore system acl = yes" \
+        --option="store dos attributes = yes" \
+        --option="inherit acls = yes" \
+        --option="inherit permissions = yes" \
+        --option="idmap config * : backend = tdb" \
+        --option="idmap config * : range = 3000-7999" \
         --option="log level = 1" \
         --option="log file = /var/log/samba/samba.log"
 
@@ -67,7 +95,37 @@ if [ ! -f "$PROVISIONED_FLAG" ]; then
     samba-tool group addmembers TIC gobah || true
     samba-tool group addmembers 'Account Operators' TIC || true
 
-    # ── Shares, NSS e mkhomedir ──────────────────────────────
+    # ── Política de senhas (padrão do deploy de referência) ───
+    echo "==> Configuring password policy (no max age, no complexity)..."
+    samba-tool domain passwordsettings set --max-pwd-age=0 || true
+    samba-tool domain passwordsettings set --complexity=off || true
+
+    # ── Shares Corporativo/Pessoal/TIC no smb.conf ───────────
+    echo "==> Configuring file shares..."
+    cat >> /etc/samba/smb.conf <<EOF
+
+[Corporativo]
+	path = /mnt/data/Corporativo
+	read only = no
+	force user = root
+	force group = root
+
+[Pessoal]
+	path = /mnt/data/Pessoal
+	read only = no
+	browseable = no
+	full_audit:success = none
+	full_audit:failure = none
+
+[TIC]
+	path = /mnt/data/TIC
+	read only = no
+	browseable = no
+	full_audit:success = none
+	full_audit:failure = none
+EOF
+
+    # Diretórios das shares (no volume samba-shares)
     echo "==> Creating share directories..."
     mkdir -p /mnt/data/{Corporativo,Pessoal,Profile,TIC,.snapshots}
 
