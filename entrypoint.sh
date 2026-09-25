@@ -197,14 +197,15 @@ EOF
     mkdir -p /mnt/data/{Corporativo,Pessoal,Profile,TIC,.snapshots}
 
     # ── resolv.conf: o DC é o resolvedor principal (item 10 do ref) ──
+    # O netbird só deve tocar este arquivo DEPOIS do connect — e falha
+    # porque ele ficará imutável (chattr +i), como no deploy de referência.
     echo "==> Configuring /etc/resolv.conf (DC as primary resolver)..."
     L_REALM_LOWER=$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')
     cat > /etc/resolv.conf <<EOF
 search ${L_REALM_LOWER}
 nameserver 127.0.0.1
 EOF
-    # No container o Docker pode regravar o resolv.conf a cada restart:
-    # tornar imutável durante a vida do container (como o chattr +i do ref).
+    # Imutável durante a vida do container (como o chattr +i do ref).
     chattr +i /etc/resolv.conf 2>/dev/null || echo "WARN: chattr +i indisponível (resolv.conf poderá ser regravado pelo Docker)." >&2
 
     # NSS via winbind: permite resolver contas/grupos do AD (chown, etc.)
