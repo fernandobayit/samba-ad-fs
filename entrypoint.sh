@@ -270,6 +270,17 @@ EOF
         sleep 2
     fi
 
+    # Registro DNS do DC: garantir o A record do IP principal (wt0/netbird).
+    # O provision registra pelo IP da rota default (eth0); o IP da malha é
+    # o que os peers devem resolver — adicionar explicitamente se divergir.
+    if [ -n "$_PRIMARY_IP" ] && [ "$_PRIMARY_IP" != "$(hostname -I | awk '{print $1}')" ]; then
+        L_REALM_LOWER2=$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')
+        echo "==> Adding A record ${HOSTNAME}.${L_REALM_LOWER2} -> ${_PRIMARY_IP} (NetBird primary)"
+        samba-tool dns add 127.0.0.1 "${L_REALM_LOWER2}" "${HOSTNAME}" A "$_PRIMARY_IP" \
+            -U "administrator%${SAMBA_ADMIN_PASSWORD}" 2>/dev/null \
+            || echo "WARN: falha ao adicionar A record do IP da malha (revisar manualmente)." >&2
+    fi
+
     touch "$PROVISIONED_FLAG"
     echo "==> Samba AD DC provisioned successfully!"
 else
