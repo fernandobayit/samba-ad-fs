@@ -24,12 +24,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # NetBird (mesh VPN) — optional, enabled via NETBIRD_SETUP_KEY
-RUN curl -sSL https://pkgs.netbird.io/debian/public.key | \
-    gpg --dearmor -o /usr/share/keyrings/netbird.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/netbird.gpg] https://pkgs.netbird.io/debian stable main" > \
-    /etc/apt/sources.list.d/netbird.list && \
-    apt-get update && apt-get install -y --no-install-recommends netbird && \
-    rm -rf /var/lib/apt/lists/*
+# Versão 0.71.4 (mesma do padrão de produção): ouve DNS na porta configurada
+# por NB_DNS_FORWARDER_PORT (5053) — versões novas (0.79+) capturam a :53 via
+# redirect e conflitam com o Samba.
+RUN case "$(dpkg --print-architecture)" in \
+      amd64) NB_ARCH=amd64 ;; \
+      arm64) NB_ARCH=arm64 ;; \
+      *) NB_ARCH=amd64 ;; \
+    esac && \
+    curl -sSL -o /tmp/netbird.deb "https://github.com/netbirdio/netbird/releases/download/v0.71.4/netbird_0.71.4_linux_${NB_ARCH}.deb" && \
+    apt-get install -y --no-install-recommends /tmp/netbird.deb && \
+    rm -f /tmp/netbird.deb
 
 # Environment defaults
 ENV SAMBA_REALM=SWAT.LOCAL
