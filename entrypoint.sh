@@ -43,6 +43,7 @@ if [ -n "$NETBIRD_SETUP_KEY" ]; then
     # "netbird service start" daemoniza via systemd e PERDE o ambiente —
     # no container rodamos o daemon direto ("service run") para herdar a env.
     export NB_DNS_FORWARDER_PORT="$NETBIRD_DNS_PORT"
+    mkdir -p /etc/sysconfig
     echo "NB_DNS_FORWARDER_PORT=$NETBIRD_DNS_PORT" > /etc/sysconfig/netbird 2>/dev/null || true
 
     netbird service run --log-level info \
@@ -78,8 +79,9 @@ done
 # hosts: remove a linha injetada pelo Docker (IP curto + hostname) para
 # ficar no padrão do deploy de referência (127.0.0.1 localhost + FQDN).
 if grep -q -E "^[[:space:]]*[0-9a-fA-F:.]+[[:space:]]+${HOSTNAME}[[:space:]]*$" "$PERSIST_DIR/hosts" 2>/dev/null; then
-    grep -v -E "^[[:space:]]*[0-9a-fA-F:.]+[[:space:]]+${HOSTNAME}[[:space:]]*$" "$PERSIST_DIR/hosts" > "$PERSIST_DIR/hosts.tmp"
-    mv "$PERSIST_DIR/hosts.tmp" "$PERSIST_DIR/hosts"
+    grep -v -E "^[[:space:]]*[0-9a-fA-F:.]+[[:space:]]+${HOSTNAME}[[:space:]]*$" "$PERSIST_DIR/hosts" > /tmp/hosts.new
+    cat /tmp/hosts.new > "$PERSIST_DIR/hosts"
+    rm -f /tmp/hosts.new
 fi
 for f in hosts resolv.conf nsswitch.conf krb5.conf; do
     if [ "$(readlink "/etc/$f" 2>/dev/null)" != "$PERSIST_DIR/$f" ]; then
@@ -356,10 +358,14 @@ if [ -n "$NETBIRD_CONNECT_URL" ]; then
     L_REALM_LOWER=$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')
     _MESH_IP=$(ip -4 -o addr show wt0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
     if [ -n "$_MESH_IP" ]; then
-        # Atualiza a linha FQDN do volume para o IP da malha.
-        grep -v "${HOSTNAME}\.${L_REALM_LOWER}" "$PERSIST_DIR/hosts" > "$PERSIST_DIR/hosts.tmp" 2>/dev/null || true
-        echo "${_MESH_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}" >> "$PERSIST_DIR/hosts.tmp"
-        mv "$PERSIST_DIR/hosts.tmp" "$PERSIST_DIR/hosts"
+        # Atualiza a linha FQDN do volume para o IP da malha. /etc/hosts é
+        # um SYMLINK para o arquivo do volume: editar o arquivo real via
+        # temp + cat (mv/rename entre volumes não é possível e o volume
+        # pode ser um bind).
+        grep -v "${HOSTNAME}\.${L_REALM_LOWER}" "$PERSIST_DIR/hosts" > /tmp/hosts.new 2>/dev/null || true
+        echo "${_MESH_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}" >> /tmp/hosts.new
+        cat /tmp/hosts.new > "$PERSIST_DIR/hosts"
+        rm -f /tmp/hosts.new
         echo "==> /etc/hosts: ${_MESH_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}"
         echo "==> Adding A record ${HOSTNAME}.${L_REALM_LOWER} -> ${_MESH_IP} (NetBird)"
         samba-tool dns add 127.0.0.1 "${L_REALM_LOWER}" "${HOSTNAME}" A "$_MESH_IP" \
