@@ -34,13 +34,19 @@ if [ -n "$NETBIRD_SETUP_KEY" ]; then
 
     rm -f /var/run/netbird.sock
 
-    # Porta do forwarder DNS do netbird: 5053 (53 fica exclusiva do Samba)
+    # Porta do forwarder DNS do netbird: 5053 (53 fica exclusiva do Samba).
+    # "netbird service start" daemoniza via systemd e PERDE o ambiente —
+    # no container rodamos o daemon direto ("service run") para herdar a env.
     export NB_DNS_FORWARDER_PORT="$NETBIRD_DNS_PORT"
+    echo "NB_DNS_FORWARDER_PORT=$NETBIRD_DNS_PORT" > /etc/sysconfig/netbird 2>/dev/null || true
 
-    netbird service start --log-file console || {
-        echo "ERROR: failed to start NetBird daemon." >&2
-        exit 1
-    }
+    netbird service run --log-level info \
+        --daemon-addr unix:///var/run/netbird.sock \
+        --log-file /var/log/netbird/client.log \
+        >> /var/log/netbird/console.log 2>&1 &
+    NB_PID=$!
+    disown "$NB_PID" 2>/dev/null || true
+
     for _ in {1..10}; do
         if netbird status --check live >/dev/null 2>&1; then
             break
