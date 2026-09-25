@@ -334,10 +334,12 @@ if [ -n "$NETBIRD_CONNECT_URL" ]; then
     L_REALM_LOWER=$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')
     _MESH_IP=$(ip -4 -o addr show wt0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
     if [ -n "$_MESH_IP" ]; then
-        # Sempre atualiza a linha FQDN para o IP da malha (o FQDN pode ter
-        # sido criado antes do connect apontando para o IP do container).
-        sed -i "/${HOSTNAME}\.${L_REALM_LOWER}/d" /etc/hosts 2>/dev/null
-        echo "${_MESH_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}" >> /etc/hosts
+        # Atualiza a linha FQDN para o IP da malha. /etc/hosts é bind do
+        # Docker — sed -i (rename) falha: editar in-place com grep -v + echo.
+        grep -v "${HOSTNAME}\.${L_REALM_LOWER}" /etc/hosts > /tmp/hosts.new 2>/dev/null || true
+        echo "${_MESH_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}" >> /tmp/hosts.new
+        cat /tmp/hosts.new > /etc/hosts
+        rm -f /tmp/hosts.new
         echo "==> /etc/hosts: ${_MESH_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}"
         echo "==> Adding A record ${HOSTNAME}.${L_REALM_LOWER} -> ${_MESH_IP} (NetBird)"
         samba-tool dns add 127.0.0.1 "${L_REALM_LOWER}" "${HOSTNAME}" A "$_MESH_IP" \
