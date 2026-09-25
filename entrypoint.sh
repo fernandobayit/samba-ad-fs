@@ -160,13 +160,18 @@ if [ ! -f "$PROVISIONED_FLAG" ]; then
     cp /var/lib/samba/private/krb5.conf "$PERSIST_DIR/krb5.conf"
 
     # resolv.conf: o DC é o resolvedor principal (item 10 do ref).
-    # Gravar DIRETO no volume (o /etc/resolv.conf aponta para lá).
+    # Gravar DIRETO no volume (o /etc/resolv.conf aponta para lá) e
+    # torná-lo IMUTÁVEL — assim o netbird não o regrava no connect
+    # (mesmo comportamento do chattr +i do deploy de referência; o
+    # arquivo vive no volume, fora dos metadados do container).
     echo "==> Configuring /etc/resolv.conf (DC as primary resolver)..."
     L_REALM_LOWER=$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')
     cat > "$PERSIST_DIR/resolv.conf" <<EOF
 search ${L_REALM_LOWER}
 nameserver 127.0.0.1
 EOF
+    chattr +i "$PERSIST_DIR/resolv.conf" 2>/dev/null \
+        || echo "WARN: chattr +i indisponível — o netbird poderá regravar o resolv.conf." >&2
 
     # Allow plain LDAP binds (no TLS required) — DEV ONLY
     echo "==> Configuring LDAP to allow simple binds..."
@@ -299,6 +304,12 @@ EOF
     echo "==> Samba AD DC provisioned successfully!"
 else
     echo "==> Samba AD DC already provisioned, starting..."
+    # Reforça o resolv.conf no padrão (DC como resolver) e imutável —
+    # um boot anterior pode tê-lo deixado regravado pelo netbird.
+    if ! lsattr "$PERSIST_DIR/resolv.conf" 2>/dev/null | grep -q -- "-i-"; then
+        printf "search %s\nnameserver 127.0.0.1\n" "$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')" > "$PERSIST_DIR/resolv.conf" 2>/dev/null || true
+        chattr +i "$PERSIST_DIR/resolv.conf" 2>/dev/null || true
+    fi
 fi
 
 # ── NetBird: connect APÓS o Samba estar no ar ────────────
