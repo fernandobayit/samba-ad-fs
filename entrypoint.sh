@@ -129,6 +129,23 @@ if [ ! -f "$PROVISIONED_FLAG" ]; then
     # Copy Kerberos config
     cp /var/lib/samba/private/krb5.conf /etc/krb5.conf
 
+    # ── Persistência no volume samba-config ──────────────────
+    # krb5.conf e nsswitch.conf passam a viver em /etc/samba/persistent/
+    # (volume samba-config) e os /etc originais viram symlinks — assim
+    # sobrevivem à recriação do container. hosts e resolv.conf são bind
+    # mounts do Docker (não podem ser symlinks): o entrypoint os RESTAURA
+    # do volume a cada boot e os salva de volta ao final do provisionamento.
+    PERSIST_DIR=/etc/samba/persistent
+    mkdir -p "$PERSIST_DIR"
+    for f in hosts resolv.conf nsswitch.conf krb5.conf; do
+        [ -f "$PERSIST_DIR/$f" ] || cp "/etc/$f" "$PERSIST_DIR/$f"
+    done
+
+    # krb5.conf: symlink para o volume (arquivo normal da imagem)
+    rm -f /etc/krb5.conf && ln -s "$PERSIST_DIR/krb5.conf" /etc/krb5.conf
+    # nsswitch.conf: symlink para o volume
+    rm -f /etc/nsswitch.conf && ln -s "$PERSIST_DIR/nsswitch.conf" /etc/nsswitch.conf
+
     # Allow plain LDAP binds (no TLS required) — DEV ONLY
     echo "==> Configuring LDAP to allow simple binds..."
     sed -i '/\[global\]/a\\tldap server require strong auth = no' /etc/samba/smb.conf
@@ -317,15 +334,25 @@ if [ -n "$NETBIRD_CONNECT_URL" ]; then
     L_REALM_LOWER=$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')
     _MESH_IP=$(ip -4 -o addr show wt0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
     if [ -n "$_MESH_IP" ]; then
-        if ! grep -q "${HOSTNAME}.${L_REALM_LOWER}" /etc/hosts 2>/dev/null; then
-            echo "==> /etc/hosts: ${_MESH_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}"
-            echo "${_MESH_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}" >> /etc/hosts
-        fi
+        # Sempre atualiza a linha FQDN para o IP da malha (o FQDN pode ter
+        # sido criado antes do connect apontando para o IP do container).
+        sed -i "/${HOSTNAME}\.${L_REALM_LOWER}/d" /etc/hosts 2>/dev/null
+        echo "${_MESH_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}" >> /etc/hosts
+        echo "==> /etc/hosts: ${_MESH_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}"
         echo "==> Adding A record ${HOSTNAME}.${L_REALM_LOWER} -> ${_MESH_IP} (NetBird)"
         samba-tool dns add 127.0.0.1 "${L_REALM_LOWER}" "${HOSTNAME}" A "$_MESH_IP" \
             -U "administrator%${SAMBA_ADMIN_PASSWORD}" 2>/dev/null \
             || echo "WARN: falha ao adicionar A record do IP da malha (revisar manualmente)." >&2
     fi
+fi
+
+# Salva o estado final de hosts/resolv.conf no volume (persistência entre recriações)
+PERSIST_DIR=/etc/samba/persistent
+if [ -d "$PERSIST_DIR" ]; then
+    cp -f /etc/hosts "$PERSIST_DIR/hosts" 2>/dev/null || true
+    chattr -i /etc/resolv.conf 2>/dev/null
+    cp -f /etc/resolv.conf "$PERSIST_DIR/resolv.conf" 2>/dev/null || true
+    chattr +i /etc/resolv.conf 2>/dev/null || true
 fi
 
 # Container vive enquanto o Samba viver
