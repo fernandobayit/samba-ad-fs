@@ -14,8 +14,13 @@ if [ -z "$SAMBA_ADMIN_PASSWORD" ] || [ "$SAMBA_ADMIN_PASSWORD" = "ChangeThisPass
 fi
 
 # ── NetBird mesh (optional) ─────────────────────────────
-# Sobe ANTES do provisionamento: a wt0 precisa existir para o
-# /etc/hosts (FQDN) e para o registro DNS do DC ficarem com o IP da malha.
+# Daemon sobe primeiro (sem connect); o connect acontece DEPOIS do
+# provisionamento do Samba — assim a :53 já está do Samba e o netbird
+# 0.71.x sobe o resolver local na 5053 (padrão do deploy de referência).
+# A wt0 só ganha IP no connect; o /etc/hosts e o A record da malha são
+# aplicados logo após o connect.
+NETBIRD_CONNECT_URL=""
+NETBIRD_CONNECT_KEY=""
 if [ -n "$NETBIRD_SETUP_KEY" ]; then
     echo "==> NetBird: starting..."
 
@@ -34,7 +39,7 @@ if [ -n "$NETBIRD_SETUP_KEY" ]; then
 
     rm -f /var/run/netbird.sock
 
-    # Porta do forwarder DNS do netbird: 5053 (53 fica exclusiva do Samba).
+    # Porta do DNS do netbird: 5053 (53 fica exclusiva do Samba).
     # "netbird service start" daemoniza via systemd e PERDE o ambiente —
     # no container rodamos o daemon direto ("service run") para herdar a env.
     export NB_DNS_FORWARDER_PORT="$NETBIRD_DNS_PORT"
@@ -54,27 +59,8 @@ if [ -n "$NETBIRD_SETUP_KEY" ]; then
         sleep 1
     done
 
-    netbird up --management-url "$NETBIRD_MANAGEMENT_URL" --setup-key "$NETBIRD_SETUP_KEY" 2>&1 || {
-        echo "ERROR: netbird up failed. Check NETBIRD_MANAGEMENT_URL and NETBIRD_SETUP_KEY." >&2
-        exit 1
-    }
-
-    connected=0
-    for _ in {1..30}; do
-        if netbird status --check startup >/dev/null 2>&1; then
-            connected=1
-            break
-        fi
-        sleep 3
-    done
-
-    if [ "$connected" -ne 1 ]; then
-        echo "ERROR: NetBird did not reach Connected state within 90s." >&2
-        netbird status 2>&1 | head -n 20 >&2
-        exit 1
-    fi
-
-    echo "==> NetBird: connected."
+    NETBIRD_CONNECT_URL="$NETBIRD_MANAGEMENT_URL"
+    NETBIRD_CONNECT_KEY="$NETBIRD_SETUP_KEY"
 fi
 
 # ── Identidade do DC: hostname FQDN + /etc/hosts (item 10 do ref) ──
@@ -287,8 +273,59 @@ else
     echo "==> Samba AD DC already provisioned, starting..."
 fi
 
-# Create log directory
-mkdir -p /var/log/samba
-
+# ── NetBird: connect APÓS o Samba estar no ar ────────────
+# Com a :53 ocupada pelo Samba, o netbird 0.71.x sobe o resolver local
+# na 5053 (comportamento do deploy de referência, LSH-KLN01).
+# O Samba definitivo é iniciado em background ANTES do connect para que a
+# :53 nunca fique livre (o netbird conecta com o Samba já bindado).
 echo "==> Starting Samba AD DC..."
-exec samba --foreground --no-process-group
+samba --foreground --no-process-group &
+SAMBA_PID=$!
+
+if [ -n "$NETBIRD_CONNECT_URL" ]; then
+    # Aguardar o dns[master] bindar a :53 antes do connect
+    for _ in {1..30}; do
+        if (exec 3<>/dev/tcp/127.0.0.1/53) 2>/dev/null; then break; fi
+        sleep 1
+    done
+
+    echo "==> NetBird: connecting to management..."
+    netbird up --management-url "$NETBIRD_CONNECT_URL" --setup-key "$NETBIRD_CONNECT_KEY" 2>&1 || {
+        echo "ERROR: netbird up failed. Check NETBIRD_MANAGEMENT_URL and NETBIRD_SETUP_KEY." >&2
+        exit 1
+    }
+
+    connected=0
+    for _ in {1..30}; do
+        if netbird status --check startup >/dev/null 2>&1; then
+            connected=1
+            break
+        fi
+        sleep 3
+    done
+
+    if [ "$connected" -ne 1 ]; then
+        echo "ERROR: NetBird did not reach Connected state within 90s." >&2
+        netbird status 2>&1 | head -n 20 >&2
+        exit 1
+    fi
+
+    echo "==> NetBird: connected."
+
+    # Agora sim a wt0 tem IP: FQDN no /etc/hosts + A record da malha no DNS.
+    L_REALM_LOWER=$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')
+    _MESH_IP=$(ip -4 -o addr show wt0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+    if [ -n "$_MESH_IP" ]; then
+        if ! grep -q "${HOSTNAME}.${L_REALM_LOWER}" /etc/hosts 2>/dev/null; then
+            echo "==> /etc/hosts: ${_MESH_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}"
+            echo "${_MESH_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}" >> /etc/hosts
+        fi
+        echo "==> Adding A record ${HOSTNAME}.${L_REALM_LOWER} -> ${_MESH_IP} (NetBird)"
+        samba-tool dns add 127.0.0.1 "${L_REALM_LOWER}" "${HOSTNAME}" A "$_MESH_IP" \
+            -U "administrator%${SAMBA_ADMIN_PASSWORD}" 2>/dev/null \
+            || echo "WARN: falha ao adicionar A record do IP da malha (revisar manualmente)." >&2
+    fi
+fi
+
+# Container vive enquanto o Samba viver
+wait "$SAMBA_PID"
