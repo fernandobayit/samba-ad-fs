@@ -331,7 +331,11 @@ if [ -n "$NETBIRD_CONNECT_URL" ]; then
     done
 
     echo "==> NetBird: connecting to management..."
-    netbird up --management-url "$NETBIRD_CONNECT_URL" --setup-key "$NETBIRD_CONNECT_KEY" 2>&1 || {
+    # --dns-resolver-address: o resolver local do netbird escuta na porta
+    # NETBIRD_DNS_PORT (5053) — a :53 fica exclusiva do Samba (validado
+    # com o client 0.79; a config é persistida no perfil do daemon).
+    netbird up --management-url "$NETBIRD_CONNECT_URL" --setup-key "$NETBIRD_CONNECT_KEY" \
+        --dns-resolver-address "127.0.0.1:${NETBIRD_DNS_PORT}" 2>&1 || {
         echo "ERROR: netbird up failed. Check NETBIRD_MANAGEMENT_URL and NETBIRD_SETUP_KEY." >&2
         exit 1
     }

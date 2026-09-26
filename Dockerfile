@@ -26,15 +26,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # NetBird (mesh VPN) — optional, enabled via NETBIRD_SETUP_KEY
-# Versão 0.71.4 (mesma do padrão de produção): ouve DNS na porta configurada
-# por NB_DNS_FORWARDER_PORT (5053) — versões novas (0.79+) capturam a :53 via
-# redirect e conflitam com o Samba.
+# Versão 0.79.0: o resolver local escuta em --dns-resolver-address
+# (definido no entrypoint como 127.0.0.1:5053) — a :53 fica do Samba.
 RUN case "$(dpkg --print-architecture)" in \
       amd64) NB_ARCH=amd64 ;; \
       arm64) NB_ARCH=arm64 ;; \
       *) NB_ARCH=amd64 ;; \
     esac && \
-    curl -sSL -o /tmp/netbird.deb "https://github.com/netbirdio/netbird/releases/download/v0.71.4/netbird_0.71.4_linux_${NB_ARCH}.deb" && \
+    curl -sSL -o /tmp/netbird.deb "https://github.com/netbirdio/netbird/releases/download/v0.79.0/netbird_0.79.0_linux_${NB_ARCH}.deb" && \
     apt-get install -y --no-install-recommends /tmp/netbird.deb && \
     rm -f /tmp/netbird.deb
 
