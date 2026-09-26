@@ -168,6 +168,8 @@ if [ ! -f "$PROVISIONED_FLAG" ]; then
     # arquivo vive no volume, fora dos metadados do container).
     echo "==> Configuring /etc/resolv.conf (DC as primary resolver)..."
     L_REALM_LOWER=$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')
+    # Remove a imutabilidade de um boot anterior antes de regravar.
+    chattr -i "$PERSIST_DIR/resolv.conf" 2>/dev/null || true
     cat > "$PERSIST_DIR/resolv.conf" <<EOF
 search ${L_REALM_LOWER}
 nameserver 127.0.0.1
