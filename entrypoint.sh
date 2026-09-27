@@ -96,23 +96,21 @@ for f in hosts resolv.conf nsswitch.conf krb5.conf; do
 done
 
 # ── Identidade do DC: hostname FQDN + /etc/hosts (item 10 do ref) ──
-# /etc/hosts é o arquivo do volume: SEMPRE 2 conjuntos — IPs locais +
-# UMA linha do IP principal (wt0/netbird; sem wt0, o IP do container).
-# Linhas antigas do FQDN são descartadas antes de reescrever.
+# /etc/hosts é o arquivo do volume: SEMPRE exatamente 2 linhas —
+# 127.0.0.1 localhost + IP principal FQDN (wt0/netbird; sem wt0, o IP
+# do container). Regenerado do zero a cada boot (sem IPv6/multicast).
 _PERSIST_HOSTS="$PERSIST_DIR/hosts"
-grep -v -E "^[[:space:]]*[0-9a-fA-F:.]+[[:space:]]+.*${HOSTNAME}" "$_PERSIST_HOSTS" > /tmp/hosts.new 2>/dev/null || true
 _PRIMARY_IP=$(ip -4 -o addr show wt0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
 if [ -z "$_PRIMARY_IP" ]; then
     _PRIMARY_IP=$(hostname -I | awk '{print $1}')
 fi
 if [ -n "$_PRIMARY_IP" ]; then
-    echo "${_PRIMARY_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}" >> /tmp/hosts.new
+    printf "127.0.0.1\tlocalhost\n%s %s %s\n" "$_PRIMARY_IP" "${HOSTNAME}.${L_REALM_LOWER}" "${HOSTNAME}" > "$_PERSIST_HOSTS"
     echo "==> /etc/hosts: ${_PRIMARY_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}"
 else
     echo "WARN: sem IP primário para /etc/hosts (wt0 ausente e hostname -I vazio)." >&2
+    printf "127.0.0.1\tlocalhost\n" > "$_PERSIST_HOSTS"
 fi
-cat /tmp/hosts.new > "$_PERSIST_HOSTS"
-rm -f /tmp/hosts.new
 
 PROVISIONED_FLAG="/var/lib/samba/.provisioned"
 
@@ -381,24 +379,41 @@ if [ -n "$NETBIRD_CONNECT_URL" ]; then
 
     echo "==> NetBird: connected."
 
-    # Agora sim a wt0 tem IP: FQDN no /etc/hosts + A record da malha no DNS.
-    # /etc/hosts agora é symlink para o volume — gravar DIRETO no volume.
+    # Agora sim a wt0 tem IP: /etc/hosts (2 linhas) + DNS da malha.
+    # /etc/hosts é symlink para o volume — regenerar as 2 linhas.
     L_REALM_LOWER=$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')
     _MESH_IP=$(ip -4 -o addr show wt0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
     if [ -n "$_MESH_IP" ]; then
-        # Atualiza a linha FQDN do volume para o IP da malha. /etc/hosts é
-        # um SYMLINK para o arquivo do volume: editar o arquivo real via
-        # temp + cat (mv/rename entre volumes não é possível e o volume
-        # pode ser um bind).
-        grep -v "${HOSTNAME}\.${L_REALM_LOWER}" "$PERSIST_DIR/hosts" > /tmp/hosts.new 2>/dev/null || true
-        echo "${_MESH_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}" >> /tmp/hosts.new
-        cat /tmp/hosts.new > "$PERSIST_DIR/hosts"
-        rm -f /tmp/hosts.new
+        # /etc/hosts: regenera com o IP da malha (2 linhas).
+        printf "127.0.0.1\tlocalhost\n%s %s %s\n" "$_MESH_IP" "${HOSTNAME}.${L_REALM_LOWER}" "${HOSTNAME}" > "$PERSIST_DIR/hosts"
         echo "==> /etc/hosts: ${_MESH_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}"
-        echo "==> Adding A record ${HOSTNAME}.${L_REALM_LOWER} -> ${_MESH_IP} (NetBird)"
-        samba-tool dns add 127.0.0.1 "${L_REALM_LOWER}" "${HOSTNAME}" A "$_MESH_IP" \
-            -U "administrator%${SAMBA_ADMIN_PASSWORD}" 2>/dev/null \
-            || echo "WARN: falha ao adicionar A record do IP da malha (revisar manualmente)." >&2
+
+        # DNS RPC: usar o IP da malha como alvo (o loopback é interceptado
+        # pelas regras nft do netbird e o RPC falha com LOGON_FAILURE).
+        _DNS_RPC_HOST="$_MESH_IP"
+        _DNS_AUTH=(-U "administrator%${SAMBA_ADMIN_PASSWORD}")
+
+        echo "==> DNS: A ${HOSTNAME}.${L_REALM_LOWER} -> ${_MESH_IP} (NetBird)"
+        samba-tool dns add "$_DNS_RPC_HOST" "${L_REALM_LOWER}" "${HOSTNAME}" A "$_MESH_IP" \
+            "${_DNS_AUTH[@]}" 2>/dev/null \
+            || echo "WARN: falha ao adicionar A record do DC na malha (revisar manualmente)." >&2
+
+        echo "==> DNS: A ${L_REALM_LOWER} (domínio) -> ${_MESH_IP} (NetBird)"
+        samba-tool dns add "$_DNS_RPC_HOST" "${L_REALM_LOWER}" "@" A "$_MESH_IP" \
+            "${_DNS_AUTH[@]}" 2>/dev/null \
+            || echo "WARN: falha ao adicionar A record do domínio na malha (revisar manualmente)." >&2
+
+        # Remove os A records do eth0 (provision registra o IP da rota
+        # default): o domínio e o DC devem responder SOMENTE pela malha.
+        _ETH0_IP=$(hostname -I | awk '{print $1}')
+        if [ -n "$_ETH0_IP" ] && [ "$_ETH0_IP" != "$_MESH_IP" ]; then
+            samba-tool dns delete "$_DNS_RPC_HOST" "${L_REALM_LOWER}" "@" A "$_ETH0_IP" \
+                "${_DNS_AUTH[@]}" 2>/dev/null \
+                && echo "==> DNS: removed A ${L_REALM_LOWER} -> ${_ETH0_IP} (eth0)"
+            samba-tool dns delete "$_DNS_RPC_HOST" "${L_REALM_LOWER}" "${HOSTNAME}" A "$_ETH0_IP" \
+                "${_DNS_AUTH[@]}" 2>/dev/null \
+                && echo "==> DNS: removed A ${HOSTNAME}.${L_REALM_LOWER} -> ${_ETH0_IP} (eth0)"
+        fi
 
         # resolv.conf: o reforço do boot usou o IP disponível na época (eth0);
         # agora, com a wt0 no ar, o resolver passa a ser o IP DA MALHA —
