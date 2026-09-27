@@ -403,17 +403,23 @@ if [ -n "$NETBIRD_CONNECT_URL" ]; then
             "${_DNS_AUTH[@]}" 2>/dev/null \
             || echo "WARN: falha ao adicionar A record do domínio na malha (revisar manualmente)." >&2
 
-        # Remove os A records do eth0 (provision registra o IP da rota
-        # default): o domínio e o DC devem responder SOMENTE pela malha.
-        _ETH0_IP=$(hostname -I | awk '{print $1}')
-        if [ -n "$_ETH0_IP" ] && [ "$_ETH0_IP" != "$_MESH_IP" ]; then
-            samba-tool dns delete "$_DNS_RPC_HOST" "${L_REALM_LOWER}" "@" A "$_ETH0_IP" \
-                "${_DNS_AUTH[@]}" 2>/dev/null \
-                && echo "==> DNS: removed A ${L_REALM_LOWER} -> ${_ETH0_IP} (eth0)"
-            samba-tool dns delete "$_DNS_RPC_HOST" "${L_REALM_LOWER}" "${HOSTNAME}" A "$_ETH0_IP" \
-                "${_DNS_AUTH[@]}" 2>/dev/null \
-                && echo "==> DNS: removed A ${HOSTNAME}.${L_REALM_LOWER} -> ${_ETH0_IP} (eth0)"
-        fi
+        # Remove os A records de TODAS as redes docker (eth0/eth1/...):
+        # o provision registra o IP da rota default no @ e no hostname, e
+        # redes docker extras podem adicionar mais. O domínio e o DC devem
+        # responder SOMENTE pela malha. hostname -I começa pela wt0 (malha),
+        # então iterar as interfaces explícitas — nunca o 1o IP do -I.
+        for _ETH_IP in $(ip -4 -o addr show 2>/dev/null | awk '$2 != "lo" && $2 != "wt0" {print $4}' | cut -d/ -f1); do
+            if [ -n "$_ETH_IP" ] && [ "$_ETH_IP" != "$_MESH_IP" ]; then
+                if samba-tool dns delete "$_DNS_RPC_HOST" "${L_REALM_LOWER}" "@" A "$_ETH_IP" \
+                    "${_DNS_AUTH[@]}" 2>/dev/null; then
+                    echo "==> DNS: removed A ${L_REALM_LOWER} -> ${_ETH_IP} (rede docker)"
+                fi
+                if samba-tool dns delete "$_DNS_RPC_HOST" "${L_REALM_LOWER}" "${HOSTNAME}" A "$_ETH_IP" \
+                    "${_DNS_AUTH[@]}" 2>/dev/null; then
+                    echo "==> DNS: removed A ${HOSTNAME}.${L_REALM_LOWER} -> ${_ETH_IP} (rede docker)"
+                fi
+            fi
+        done
 
         # resolv.conf: o reforço do boot usou o IP disponível na época (eth0);
         # agora, com a wt0 no ar, o resolver passa a ser o IP DA MALHA —
