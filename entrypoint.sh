@@ -328,14 +328,14 @@ EOF
 else
     echo "==> Samba AD DC already provisioned, starting..."
     # Reforça o resolv.conf no padrão (DC como resolver) e imutável —
-    # um boot anterior pode tê-lo deixado regravado pelo netbird.
-    if ! lsattr "$PERSIST_DIR/resolv.conf" 2>/dev/null | grep -q -- "-i-"; then
-        _RESOLVER_IP2=$(ip -4 -o addr show wt0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
-        [ -z "$_RESOLVER_IP2" ] && _RESOLVER_IP2=$(hostname -I | awk '{print $1}')
-        NS_ADDR=${_RESOLVER_IP2:-127.0.0.1}
-        printf "search %s\nnameserver %s\n" "$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')" "$NS_ADDR" > "$PERSIST_DIR/resolv.conf" 2>/dev/null || true
-        chattr +i "$PERSIST_DIR/resolv.conf" 2>/dev/null || true
-    fi
+    # um boot anterior pode tê-lo deixado regravado pelo netbird OU
+    # imutável com conteúdo antigo (127.0.0.1): regravar sempre.
+    _RESOLVER_IP2=$(ip -4 -o addr show wt0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+    [ -z "$_RESOLVER_IP2" ] && _RESOLVER_IP2=$(hostname -I | awk '{print $1}')
+    NS_ADDR=${_RESOLVER_IP2:-127.0.0.1}
+    chattr -i "$PERSIST_DIR/resolv.conf" 2>/dev/null || true
+    printf "search %s\nnameserver %s\n" "$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')" "$NS_ADDR" > "$PERSIST_DIR/resolv.conf" 2>/dev/null || true
+    chattr +i "$PERSIST_DIR/resolv.conf" 2>/dev/null || true
 fi
 
 # ── NetBird: connect APÓS o Samba estar no ar ────────────
