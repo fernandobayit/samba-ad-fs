@@ -399,6 +399,16 @@ if [ -n "$NETBIRD_CONNECT_URL" ]; then
         samba-tool dns add 127.0.0.1 "${L_REALM_LOWER}" "${HOSTNAME}" A "$_MESH_IP" \
             -U "administrator%${SAMBA_ADMIN_PASSWORD}" 2>/dev/null \
             || echo "WARN: falha ao adicionar A record do IP da malha (revisar manualmente)." >&2
+
+        # resolv.conf: o reforço do boot usou o IP disponível na época (eth0);
+        # agora, com a wt0 no ar, o resolver passa a ser o IP DA MALHA —
+        # o mesmo que as máquinas da malha usam. Imutável (netbird à parte).
+        if [ "$_MESH_IP" != "$NS_ADDR" ]; then
+            chattr -i "$PERSIST_DIR/resolv.conf" 2>/dev/null || true
+            printf "search %s\nnameserver %s\n" "${L_REALM_LOWER}" "$_MESH_IP" > "$PERSIST_DIR/resolv.conf"
+            chattr +i "$PERSIST_DIR/resolv.conf" 2>/dev/null || true
+            echo "==> /etc/resolv.conf: nameserver ${_MESH_IP} (NetBird)"
+        fi
     fi
 fi
 
