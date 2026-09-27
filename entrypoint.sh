@@ -96,18 +96,23 @@ for f in hosts resolv.conf nsswitch.conf krb5.conf; do
 done
 
 # ── Identidade do DC: hostname FQDN + /etc/hosts (item 10 do ref) ──
-# O hostname do container é fixado pelo docker compose (hostname: dc1).
-# /etc/hosts é agora o arquivo do volume: gravar DIRETO em $PERSIST_DIR.
-if ! grep -q "${HOSTNAME}.${SAMBA_REALM,,}" "$PERSIST_DIR/hosts" 2>/dev/null; then
-    _PRIMARY_IP=$(ip -4 -o addr show wt0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
-    [ -z "$_PRIMARY_IP" ] && _PRIMARY_IP=$(hostname -I | awk '{print $1}')
-    if [ -n "$_PRIMARY_IP" ]; then
-        echo "==> /etc/hosts: ${_PRIMARY_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}"
-        echo "${_PRIMARY_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}" >> "$PERSIST_DIR/hosts"
-    else
-        echo "WARN: sem IP primário para /etc/hosts (wt0 ausente e hostname -I vazio)." >&2
-    fi
+# /etc/hosts é o arquivo do volume: SEMPRE 2 conjuntos — IPs locais +
+# UMA linha do IP principal (wt0/netbird; sem wt0, o IP do container).
+# Linhas antigas do FQDN são descartadas antes de reescrever.
+_PERSIST_HOSTS="$PERSIST_DIR/hosts"
+grep -v -E "^[[:space:]]*[0-9a-fA-F:.]+[[:space:]]+.*${HOSTNAME}" "$_PERSIST_HOSTS" > /tmp/hosts.new 2>/dev/null || true
+_PRIMARY_IP=$(ip -4 -o addr show wt0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+if [ -z "$_PRIMARY_IP" ]; then
+    _PRIMARY_IP=$(hostname -I | awk '{print $1}')
 fi
+if [ -n "$_PRIMARY_IP" ]; then
+    echo "${_PRIMARY_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}" >> /tmp/hosts.new
+    echo "==> /etc/hosts: ${_PRIMARY_IP} ${HOSTNAME}.${L_REALM_LOWER} ${HOSTNAME}"
+else
+    echo "WARN: sem IP primário para /etc/hosts (wt0 ausente e hostname -I vazio)." >&2
+fi
+cat /tmp/hosts.new > "$_PERSIST_HOSTS"
+rm -f /tmp/hosts.new
 
 PROVISIONED_FLAG="/var/lib/samba/.provisioned"
 
@@ -170,10 +175,24 @@ if [ ! -f "$PROVISIONED_FLAG" ]; then
     L_REALM_LOWER=$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')
     # Remove a imutabilidade de um boot anterior antes de regravar.
     chattr -i "$PERSIST_DIR/resolv.conf" 2>/dev/null || true
-    cat > "$PERSIST_DIR/resolv.conf" <<EOF
+    # O DNS do Samba NÃO responde no loopback quando o netbird está no
+    # mesmo netns (regras nft dele interceptam o tráfego local e geram
+    # SERVFAIL). O resolv.conf do container aponta para o IP DO PRÓPRIO
+    # DC (wt0 preferida; fallback eth0) — as máquinas da malha usam o
+    # mesmo IP, então o padrão fica homogêneo.
+    _RESOLVER_IP=$(ip -4 -o addr show wt0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+    [ -z "$_RESOLVER_IP" ] && _RESOLVER_IP=$(hostname -I | awk '{print $1}')
+    if [ -n "$_RESOLVER_IP" ]; then
+        cat > "$PERSIST_DIR/resolv.conf" <<EOF
+search ${L_REALM_LOWER}
+nameserver ${_RESOLVER_IP}
+EOF
+    else
+        cat > "$PERSIST_DIR/resolv.conf" <<EOF
 search ${L_REALM_LOWER}
 nameserver 127.0.0.1
 EOF
+    fi
     chattr +i "$PERSIST_DIR/resolv.conf" 2>/dev/null \
         || echo "WARN: chattr +i indisponível — o netbird poderá regravar o resolv.conf." >&2
 
@@ -311,7 +330,10 @@ else
     # Reforça o resolv.conf no padrão (DC como resolver) e imutável —
     # um boot anterior pode tê-lo deixado regravado pelo netbird.
     if ! lsattr "$PERSIST_DIR/resolv.conf" 2>/dev/null | grep -q -- "-i-"; then
-        printf "search %s\nnameserver 127.0.0.1\n" "$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')" > "$PERSIST_DIR/resolv.conf" 2>/dev/null || true
+        _RESOLVER_IP2=$(ip -4 -o addr show wt0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+        [ -z "$_RESOLVER_IP2" ] && _RESOLVER_IP2=$(hostname -I | awk '{print $1}')
+        NS_ADDR=${_RESOLVER_IP2:-127.0.0.1}
+        printf "search %s\nnameserver %s\n" "$(echo "${SAMBA_REALM}" | tr 'A-Z' 'a-z')" "$NS_ADDR" > "$PERSIST_DIR/resolv.conf" 2>/dev/null || true
         chattr +i "$PERSIST_DIR/resolv.conf" 2>/dev/null || true
     fi
 fi
